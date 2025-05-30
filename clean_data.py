@@ -140,7 +140,7 @@ def ordinal(n):
 
 def export_to_csv(attempts, output_file):
     headers = [
-        'Attempt Number',
+        'Pull #',
         'Date',
         'Duration',
         'Events',
@@ -157,7 +157,7 @@ def export_to_csv(attempts, output_file):
         day_attempts = attempts_by_day[day]
         day_attempts.sort(key=lambda x: x.datetime)
         for attempt in day_attempts:
-            # Process events - only keep player deaths in a simplified format
+            # Process events - include both player deaths and raid events
             simplified_events = []
             for event in attempt.events:
                 event = event.strip()
@@ -168,6 +168,16 @@ def export_to_csv(attempts, output_file):
                         # Simplify the cause text
                         cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
                         simplified_events.append(f"{player} {cause}")
+                elif "was not soaked" in event:
+                    simplified_events.append("cluster bomb not soaked")
+                elif "was soaked by fewer than" in event:
+                    simplified_events.append("rocket under-soaked")
+                elif "Boss enraged" in event:
+                    simplified_events.append("boss enrage")
+                elif "Goon enraged" in event:
+                    simplified_events.append("goon enrage")
+                elif "No mistakes found" in event:
+                    simplified_events.append("clean pull")
             
             # Process player deaths for the detailed column
             death_times = []
@@ -190,8 +200,8 @@ def export_to_csv(attempts, output_file):
                 attempt_number,
                 attempt.datetime.strftime("%m/%d/%Y"),
                 duration_formatted,
-                '; '.join(simplified_events),
-                '; '.join(formatted_deaths)
+                '; '.join(simplified_events) if simplified_events else "no events",
+                '; '.join(formatted_deaths) if formatted_deaths else "no deaths"
             ])
             attempt_number += 1
     # Write the main table
