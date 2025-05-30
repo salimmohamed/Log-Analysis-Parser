@@ -98,7 +98,7 @@ def format_player_stats(player_stats):
 
 def analyze_non_player_mistakes(attempts):
     non_player_mistakes = defaultdict(int)
-    
+    popping_mine_count = 0
     for attempt in attempts:
         for event in attempt.events:
             if "died to" not in event:  # Only count non-death events
@@ -111,7 +111,12 @@ def analyze_non_player_mistakes(attempts):
                     non_player_mistakes["Boss enrage"] += 1
                 elif "Goon enraged" in event:
                     non_player_mistakes["Goon enrage"] += 1
-    
+        # Count popping mine deaths as a non-player mistake
+        for event in attempt.events:
+            if "died to popping a mine" in event:
+                popping_mine_count += 1
+    if popping_mine_count > 0:
+        non_player_mistakes["popping mine"] = popping_mine_count
     return non_player_mistakes
 
 def format_non_player_mistakes(mistakes):
@@ -196,7 +201,7 @@ def export_to_csv(attempts, output_file):
                         player, cause, time = match.groups()
                         # Normalize player name and simplify the cause text
                         player = normalize_player_name(player)
-                        cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
+                        cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal").replace("electrocution line", "electric fence")
                         simplified_events.append(f"{player} {cause}")
                 elif "was not soaked" in event:
                     simplified_events.append("cluster bomb not soaked")
@@ -212,7 +217,6 @@ def export_to_csv(attempts, output_file):
                     has_non_player_mistake = True
                 elif "No mistakes found" in event:
                     simplified_events.append("messed up so bad bot couldn't find out")
-            
             # Process player deaths for the detailed column
             death_times = []
             for event in attempt.events:
@@ -226,15 +230,12 @@ def export_to_csv(attempts, output_file):
             formatted_deaths = []
             for i, (player, time) in enumerate(death_times, 1):
                 formatted_deaths.append(f"{player} ({time}) ({ordinal(i)} Death)")
-            
             # Convert duration from seconds to minutes:seconds format
             minutes = attempt.duration // 60
             seconds = attempt.duration % 60
             duration_formatted = f"{minutes}:{seconds:02d}"
-            
             # Determine the deaths column value
             deaths_column = '; '.join(formatted_deaths) if formatted_deaths else ("insta-wipe" if has_non_player_mistake else "messed up so bad bot couldn't find out")
-            
             rows.append([
                 attempt_number,
                 attempt.datetime.strftime("%m/%d/%Y"),
@@ -248,7 +249,6 @@ def export_to_csv(attempts, output_file):
         writer = csv.writer(f)
         writer.writerow(headers)
         writer.writerows(rows)
-        
         # Add a blank line, then the raid mistakes tally
         f.write("\nRaid Mistakes Tally:\n")
         writer2 = csv.writer(f)
@@ -256,17 +256,13 @@ def export_to_csv(attempts, output_file):
         non_player_mistakes = analyze_non_player_mistakes(attempts)
         for mistake, count in sorted(non_player_mistakes.items(), key=lambda x: x[1], reverse=True):
             writer2.writerow([mistake, count])
-            
         # Add player mistake tally
         f.write("\nPlayer Mistake Tally:\n")
         writer3 = csv.writer(f)
         writer3.writerow(["Player", "Total Mistakes"])
-        
         # Count mistakes for each player
         player_mistakes = defaultdict(int)
-        # Add mechanic-specific mistake tracking
         mechanic_mistakes = defaultdict(lambda: defaultdict(int))
-        
         for attempt in attempts:
             for event in attempt.events:
                 if "died to" in event:
@@ -275,20 +271,17 @@ def export_to_csv(attempts, output_file):
                         player = normalize_player_name(match.group(1))
                         mechanic = match.group(2).strip()
                         # Simplify mechanic names for consistency
-                        mechanic = mechanic.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
+                        mechanic = mechanic.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal").replace("electrocution line", "electric fence")
                         player_mistakes[player] += 1
                         mechanic_mistakes[mechanic][player] += 1
-        
         # Sort players by total mistakes (descending)
         sorted_players = sorted(player_mistakes.items(), key=lambda x: x[1], reverse=True)
         for player, count in sorted_players:
             writer3.writerow([player, count])
-            
         # Add mechanic mistake tally
         f.write("\nMechanic Mistake Tally:\n")
         writer4 = csv.writer(f)
         writer4.writerow(["Mechanic", "Worst Offenders"])
-        
         # Sort mechanics alphabetically for consistent output
         for mechanic in sorted(mechanic_mistakes.keys()):
             # Get top 3 offenders for this mechanic
@@ -369,8 +362,11 @@ def clean_data(input_file, output_file):
         f.write(mistakes_output)
     
     # Export to CSV
-    csv_output_file = output_file.replace('.txt', '.csv')
-    export_to_csv(attempts, csv_output_file)
+    export_to_csv(attempts, output_file)
+    print(f"Data has been cleaned and saved to {output_file}")
+    print("\nVerifying cleaning process...")
+    verify_cleaning(input_file, output_file)
+    print("Verification results have been saved to verification_results.txt")
 
 def verify_cleaning(original_file, cleaned_file):
     verification_results = ["Starting verification process..."]
@@ -508,9 +504,4 @@ def verify_cleaning(original_file, cleaned_file):
 if __name__ == "__main__":
     input_file = "data.txt"
     output_file = "cleaned_data.txt"
-    clean_data(input_file, output_file)
-    print(f"Data has been cleaned and saved to {output_file}")
-    print(f"CSV data has been saved to {output_file.replace('.txt', '.csv')}")
-    print("\nVerifying cleaning process...")
-    verify_cleaning(input_file, output_file)
-    print("Verification results have been saved to verification_results.txt") 
+    clean_data(input_file, output_file) 
