@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from collections import defaultdict
 
 def is_boss_attempt_header(line):
     # Matches lines like "Mug'Zee #1   (4:33)"
@@ -20,6 +21,47 @@ def is_boss_event(line):
         "No mistakes found"
     ]
     return any(event in line for event in boss_events)
+
+def extract_player_death(line):
+    # Extract player name and death cause from a death event line
+    match = re.match(r"\s*(\w+)\s+died to (.*?)\s+\(.*\)", line)
+    if match:
+        return match.group(1), match.group(2)
+    return None, None
+
+def analyze_player_stats(cleaned_lines):
+    player_stats = defaultdict(lambda: defaultdict(int))
+    
+    for line in cleaned_lines:
+        if "died to" in line:
+            player, cause = extract_player_death(line)
+            if player and cause:
+                player_stats[player][cause] += 1
+    
+    return player_stats
+
+def format_player_stats(player_stats):
+    output = ["Player Statistics:\n"]
+    
+    # Sort players by total deaths
+    sorted_players = sorted(
+        player_stats.items(),
+        key=lambda x: sum(x[1].values()),
+        reverse=True
+    )
+    
+    for player, causes in sorted_players:
+        total_deaths = sum(causes.values())
+        if total_deaths == 0:
+            continue
+            
+        # Format the causes
+        cause_list = [f"{cause} x{count}" for cause, count in sorted(causes.items(), key=lambda x: x[1], reverse=True)]
+        output.append(f"{player} (Total deaths: {total_deaths})")
+        output.append("  " + ", ".join(cause_list))
+        output.append("")  # Blank line between players
+    
+    return "\n".join(output)
 
 def clean_data(input_file, output_file):
     # Read the input file
@@ -68,9 +110,17 @@ def clean_data(input_file, output_file):
     if current_attempt:
         cleaned_lines.extend(current_attempt)
     
-    # Write the cleaned data to the output file
+    # Analyze player statistics
+    player_stats = analyze_player_stats(cleaned_lines)
+    stats_output = format_player_stats(player_stats)
+    
+    # Write the cleaned data and statistics to the output file
     with open(output_file, 'w', encoding='utf-8') as f:
+        # Write the attempt data
         f.writelines(line + "\n" for line in cleaned_lines)
+        f.write("\n" + "="*50 + "\n\n")  # Separator
+        # Write the player statistics
+        f.write(stats_output)
 
 if __name__ == "__main__":
     input_file = "data.txt"
