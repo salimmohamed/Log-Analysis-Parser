@@ -138,6 +138,34 @@ def ordinal(n):
         suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
     return f"{n}{suffix}"
 
+def normalize_player_name(name):
+    # Replace special characters with their ASCII equivalents
+    replacements = {
+        'é': 'e',
+        'ò': 'o',
+        'ó': 'o',
+        'à': 'a',
+        'á': 'a',
+        'è': 'e',
+        'ì': 'i',
+        'í': 'i',
+        'ù': 'u',
+        'ú': 'u',
+        'ñ': 'n',
+        'ç': 'c',
+        'ë': 'e',
+        'ï': 'i',
+        'ü': 'u',
+        'ÿ': 'y',
+        'œ': 'oe',
+        'æ': 'ae',
+        'ß': 'ss'
+    }
+    normalized = name
+    for special, ascii_char in replacements.items():
+        normalized = normalized.replace(special, ascii_char)
+    return normalized
+
 def export_to_csv(attempts, output_file):
     headers = [
         'Pull #',
@@ -159,25 +187,31 @@ def export_to_csv(attempts, output_file):
         for attempt in day_attempts:
             # Process events - include both player deaths and raid events
             simplified_events = []
+            has_non_player_mistake = False
             for event in attempt.events:
                 event = event.strip()
                 if "died to" in event:
                     match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
                     if match:
                         player, cause, time = match.groups()
-                        # Simplify the cause text
+                        # Normalize player name and simplify the cause text
+                        player = normalize_player_name(player)
                         cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
                         simplified_events.append(f"{player} {cause}")
                 elif "was not soaked" in event:
                     simplified_events.append("cluster bomb not soaked")
+                    has_non_player_mistake = True
                 elif "was soaked by fewer than" in event:
                     simplified_events.append("rocket under-soaked")
+                    has_non_player_mistake = True
                 elif "Boss enraged" in event:
                     simplified_events.append("boss enrage")
+                    has_non_player_mistake = True
                 elif "Goon enraged" in event:
                     simplified_events.append("goon enrage")
+                    has_non_player_mistake = True
                 elif "No mistakes found" in event:
-                    simplified_events.append("clean pull")
+                    simplified_events.append("messed up so bad bot couldn't find out")
             
             # Process player deaths for the detailed column
             death_times = []
@@ -186,6 +220,8 @@ def export_to_csv(attempts, output_file):
                     match = re.search(r"(\w+)\s+died to.*?\(([^)]+)\)", event)
                     if match:
                         player, time = match.groups()
+                        # Normalize player name
+                        player = normalize_player_name(player)
                         death_times.append((player, time))
             formatted_deaths = []
             for i, (player, time) in enumerate(death_times, 1):
@@ -196,12 +232,15 @@ def export_to_csv(attempts, output_file):
             seconds = attempt.duration % 60
             duration_formatted = f"{minutes}:{seconds:02d}"
             
+            # Determine the deaths column value
+            deaths_column = '; '.join(formatted_deaths) if formatted_deaths else ("insta-wipe" if has_non_player_mistake else "messed up so bad bot couldn't find out")
+            
             rows.append([
                 attempt_number,
                 attempt.datetime.strftime("%m/%d/%Y"),
                 duration_formatted,
-                '; '.join(simplified_events) if simplified_events else "no events",
-                '; '.join(formatted_deaths) if formatted_deaths else "no deaths"
+                '; '.join(simplified_events) if simplified_events else "messed up so bad bot couldn't find out",
+                deaths_column
             ])
             attempt_number += 1
     # Write the main table
@@ -210,7 +249,7 @@ def export_to_csv(attempts, output_file):
         writer.writerow(headers)
         writer.writerows(rows)
         # Add a blank line, then the tally
-        f.write("\nNon-Player Mistakes Tally:\n")
+        f.write("\nRaid Mistakes Tally:\n")
         writer2 = csv.writer(f)
         writer2.writerow(["Mistake Type", "Count"])
         non_player_mistakes = analyze_non_player_mistakes(attempts)
