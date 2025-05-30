@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from collections import defaultdict
+import csv
 
 def is_boss_attempt_header(line):
     # Matches lines like "Mug'Zee #1   (4:33)"
@@ -48,8 +49,12 @@ class Attempt:
         self.timestamp = timestamp
         self.datetime = parse_timestamp(timestamp)
         # Extract duration from header
-        duration_match = re.search(r"\((\d+:\d+)\)", header)
-        self.duration = parse_attempt_duration(duration_match.group(1)) if duration_match else 0
+        duration_match = re.search(r"\((\d+):(\d+)\)", header)
+        if duration_match:
+            minutes, seconds = map(int, duration_match.groups())
+            self.duration = minutes * 60 + seconds
+        else:
+            self.duration = 0
 
     def format_attempt(self, attempt_number):
         # Format the attempt with the new number
@@ -125,6 +130,83 @@ def format_non_player_mistakes(mistakes):
     
     return "\n".join(output)
 
+def ordinal(n):
+    # Returns 1st, 2nd, 3rd, 4th, etc.
+    if 10 <= n % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f"{n}{suffix}"
+
+def export_to_csv(attempts, output_file):
+    headers = [
+        'Attempt Number',
+        'Date',
+        'Duration',
+        'Events',
+        'Player Deaths'
+    ]
+    attempts_by_day = defaultdict(list)
+    for attempt in attempts:
+        day = attempt.datetime.strftime("%m/%d/%Y")
+        attempts_by_day[day].append(attempt)
+    sorted_days = sorted(attempts_by_day.keys(), key=lambda x: datetime.strptime(x, "%m/%d/%Y"))
+    rows = []
+    attempt_number = 1
+    for day in sorted_days:
+        day_attempts = attempts_by_day[day]
+        day_attempts.sort(key=lambda x: x.datetime)
+        for attempt in day_attempts:
+            # Process events - only keep player deaths in a simplified format
+            simplified_events = []
+            for event in attempt.events:
+                event = event.strip()
+                if "died to" in event:
+                    match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
+                    if match:
+                        player, cause, time = match.groups()
+                        # Simplify the cause text
+                        cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
+                        simplified_events.append(f"{player} {cause}")
+            
+            # Process player deaths for the detailed column
+            death_times = []
+            for event in attempt.events:
+                if "died to" in event:
+                    match = re.search(r"(\w+)\s+died to.*?\(([^)]+)\)", event)
+                    if match:
+                        player, time = match.groups()
+                        death_times.append((player, time))
+            formatted_deaths = []
+            for i, (player, time) in enumerate(death_times, 1):
+                formatted_deaths.append(f"{player} ({time}) ({ordinal(i)} Death)")
+            
+            # Convert duration from seconds to minutes:seconds format
+            minutes = attempt.duration // 60
+            seconds = attempt.duration % 60
+            duration_formatted = f"{minutes}:{seconds:02d}"
+            
+            rows.append([
+                attempt_number,
+                attempt.datetime.strftime("%m/%d/%Y"),
+                duration_formatted,
+                '; '.join(simplified_events),
+                '; '.join(formatted_deaths)
+            ])
+            attempt_number += 1
+    # Write the main table
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(rows)
+        # Add a blank line, then the tally
+        f.write("\nNon-Player Mistakes Tally:\n")
+        writer2 = csv.writer(f)
+        writer2.writerow(["Mistake Type", "Count"])
+        non_player_mistakes = analyze_non_player_mistakes(attempts)
+        for mistake, count in sorted(non_player_mistakes.items(), key=lambda x: x[1], reverse=True):
+            writer2.writerow([mistake, count])
+
 def clean_data(input_file, output_file):
     # Read the input file
     with open(input_file, 'r', encoding='utf-8') as f:
@@ -196,9 +278,13 @@ def clean_data(input_file, output_file):
         f.write(stats_output)
         # Write the non-player mistakes summary
         f.write(mistakes_output)
+    
+    # Export to CSV
+    csv_output_file = output_file.replace('.txt', '.csv')
+    export_to_csv(attempts, csv_output_file)
 
 def verify_cleaning(original_file, cleaned_file):
-    print("Starting verification process...")
+    verification_results = ["Starting verification process..."]
     
     # Read both files
     with open(original_file, 'r', encoding='utf-8') as f:
@@ -236,12 +322,12 @@ def verify_cleaning(original_file, cleaned_file):
         cleaned_attempts.append(current_cleaned_attempt)
     
     # Compare number of attempts
-    print(f"\nAttempt count comparison:")
-    print(f"Original attempts: {len(original_attempts)}")
-    print(f"Cleaned attempts: {len(cleaned_attempts)}")
+    verification_results.append(f"\nAttempt count comparison:")
+    verification_results.append(f"Original attempts: {len(original_attempts)}")
+    verification_results.append(f"Cleaned attempts: {len(cleaned_attempts)}")
     
     if len(original_attempts) != len(cleaned_attempts):
-        print("WARNING: Number of attempts doesn't match!")
+        verification_results.append("WARNING: Number of attempts doesn't match!")
     
     # Compare timestamps
     original_timestamps = set()
@@ -257,14 +343,14 @@ def verify_cleaning(original_file, cleaned_file):
             if is_timestamp(line):
                 cleaned_timestamps.add(line)
     
-    print(f"\nTimestamp comparison:")
-    print(f"Original unique timestamps: {len(original_timestamps)}")
-    print(f"Cleaned unique timestamps: {len(cleaned_timestamps)}")
+    verification_results.append(f"\nTimestamp comparison:")
+    verification_results.append(f"Original unique timestamps: {len(original_timestamps)}")
+    verification_results.append(f"Cleaned unique timestamps: {len(cleaned_timestamps)}")
     
     if original_timestamps != cleaned_timestamps:
-        print("WARNING: Timestamps don't match exactly!")
-        print("Timestamps in original but not in cleaned:", original_timestamps - cleaned_timestamps)
-        print("Timestamps in cleaned but not in original:", cleaned_timestamps - original_timestamps)
+        verification_results.append("WARNING: Timestamps don't match exactly!")
+        verification_results.append("Timestamps in original but not in cleaned: " + str(original_timestamps - cleaned_timestamps))
+        verification_results.append("Timestamps in cleaned but not in original: " + str(cleaned_timestamps - original_timestamps))
     
     # Compare events
     original_events = defaultdict(int)
@@ -282,16 +368,16 @@ def verify_cleaning(original_file, cleaned_file):
             if is_boss_event(line) and "died to" not in line:
                 cleaned_events[line] += 1
     
-    print(f"\nEvent comparison:")
-    print("Events in original but not in cleaned:")
+    verification_results.append(f"\nEvent comparison:")
+    verification_results.append("Events in original but not in cleaned:")
     for event, count in original_events.items():
         if event not in cleaned_events or cleaned_events[event] != count:
-            print(f"  {event}: {count} times in original, {cleaned_events.get(event, 0)} times in cleaned")
+            verification_results.append(f"  {event}: {count} times in original, {cleaned_events.get(event, 0)} times in cleaned")
     
-    print("\nEvents in cleaned but not in original:")
+    verification_results.append("\nEvents in cleaned but not in original:")
     for event, count in cleaned_events.items():
         if event not in original_events or original_events[event] != count:
-            print(f"  {event}: {count} times in cleaned, {original_events.get(event, 0)} times in original")
+            verification_results.append(f"  {event}: {count} times in cleaned, {original_events.get(event, 0)} times in original")
     
     # Compare player deaths
     original_deaths = defaultdict(lambda: defaultdict(int))
@@ -311,23 +397,31 @@ def verify_cleaning(original_file, cleaned_file):
                 if player and cause:
                     cleaned_deaths[player][cause] += 1
     
-    print(f"\nPlayer death comparison:")
-    print("Deaths in original but not in cleaned:")
+    verification_results.append(f"\nPlayer death comparison:")
+    verification_results.append("Deaths in original but not in cleaned:")
     for player in original_deaths:
         for cause, count in original_deaths[player].items():
             if player not in cleaned_deaths or cause not in cleaned_deaths[player] or cleaned_deaths[player][cause] != count:
-                print(f"  {player} - {cause}: {count} times in original, {cleaned_deaths.get(player, {}).get(cause, 0)} times in cleaned")
+                verification_results.append(f"  {player} - {cause}: {count} times in original, {cleaned_deaths.get(player, {}).get(cause, 0)} times in cleaned")
     
-    print("\nDeaths in cleaned but not in original:")
+    verification_results.append("\nDeaths in cleaned but not in original:")
     for player in cleaned_deaths:
         for cause, count in cleaned_deaths[player].items():
             if player not in original_deaths or cause not in original_deaths[player] or original_deaths[player][cause] != count:
-                print(f"  {player} - {cause}: {count} times in cleaned, {original_deaths.get(player, {}).get(cause, 0)} times in original")
+                verification_results.append(f"  {player} - {cause}: {count} times in cleaned, {original_deaths.get(player, {}).get(cause, 0)} times in original")
+    
+    # Write verification results to file
+    with open("verification_results.txt", 'w', encoding='utf-8') as f:
+        f.write("\n".join(verification_results))
+    
+    return verification_results
 
 if __name__ == "__main__":
     input_file = "data.txt"
     output_file = "cleaned_data.txt"
     clean_data(input_file, output_file)
     print(f"Data has been cleaned and saved to {output_file}")
+    print(f"CSV data has been saved to {output_file.replace('.txt', '.csv')}")
     print("\nVerifying cleaning process...")
-    verify_cleaning(input_file, output_file) 
+    verify_cleaning(input_file, output_file)
+    print("Verification results have been saved to verification_results.txt") 
