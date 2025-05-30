@@ -264,18 +264,37 @@ def export_to_csv(attempts, output_file):
         
         # Count mistakes for each player
         player_mistakes = defaultdict(int)
+        # Add mechanic-specific mistake tracking
+        mechanic_mistakes = defaultdict(lambda: defaultdict(int))
+        
         for attempt in attempts:
             for event in attempt.events:
                 if "died to" in event:
-                    match = re.search(r"(\w+)\s+died to", event)
+                    match = re.search(r"(\w+)\s+died to (.*?)\s+\([^)]+\)", event)
                     if match:
                         player = normalize_player_name(match.group(1))
+                        mechanic = match.group(2).strip()
+                        # Simplify mechanic names for consistency
+                        mechanic = mechanic.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal")
                         player_mistakes[player] += 1
+                        mechanic_mistakes[mechanic][player] += 1
         
         # Sort players by total mistakes (descending)
         sorted_players = sorted(player_mistakes.items(), key=lambda x: x[1], reverse=True)
         for player, count in sorted_players:
             writer3.writerow([player, count])
+            
+        # Add mechanic mistake tally
+        f.write("\nMechanic Mistake Tally:\n")
+        writer4 = csv.writer(f)
+        writer4.writerow(["Mechanic", "Worst Offenders"])
+        
+        # Sort mechanics alphabetically for consistent output
+        for mechanic in sorted(mechanic_mistakes.keys()):
+            # Get top 3 offenders for this mechanic
+            offenders = sorted(mechanic_mistakes[mechanic].items(), key=lambda x: x[1], reverse=True)[:3]
+            offender_str = "; ".join(f"{player} ({count})" for player, count in offenders)
+            writer4.writerow([mechanic, offender_str])
 
 def clean_data(input_file, output_file):
     # Read the input file
