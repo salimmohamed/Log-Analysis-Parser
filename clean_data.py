@@ -248,13 +248,34 @@ def export_to_csv(attempts, output_file):
         writer = csv.writer(f)
         writer.writerow(headers)
         writer.writerows(rows)
-        # Add a blank line, then the tally
+        
+        # Add a blank line, then the raid mistakes tally
         f.write("\nRaid Mistakes Tally:\n")
         writer2 = csv.writer(f)
         writer2.writerow(["Mistake Type", "Count"])
         non_player_mistakes = analyze_non_player_mistakes(attempts)
         for mistake, count in sorted(non_player_mistakes.items(), key=lambda x: x[1], reverse=True):
             writer2.writerow([mistake, count])
+            
+        # Add player mistake tally
+        f.write("\nPlayer Mistake Tally:\n")
+        writer3 = csv.writer(f)
+        writer3.writerow(["Player", "Total Mistakes"])
+        
+        # Count mistakes for each player
+        player_mistakes = defaultdict(int)
+        for attempt in attempts:
+            for event in attempt.events:
+                if "died to" in event:
+                    match = re.search(r"(\w+)\s+died to", event)
+                    if match:
+                        player = normalize_player_name(match.group(1))
+                        player_mistakes[player] += 1
+        
+        # Sort players by total mistakes (descending)
+        sorted_players = sorted(player_mistakes.items(), key=lambda x: x[1], reverse=True)
+        for player, count in sorted_players:
+            writer3.writerow([player, count])
 
 def clean_data(input_file, output_file):
     # Read the input file
