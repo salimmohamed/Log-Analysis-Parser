@@ -4,7 +4,8 @@ from collections import defaultdict
 import csv
 
 def is_boss_attempt_header(line):
-    # Matches lines like "Mug'Zee #1   (4:33)"
+    # Only matches lines like "Mug'Zee #1   (4:33)"
+    # Explicitly check for Mug'Zee to filter out other bosses
     return bool(re.match(r"Mug'Zee #\d+\s+\(\d+:\d+\)", line.strip()))
 
 def is_timestamp(line):
@@ -146,29 +147,63 @@ def ordinal(n):
 def normalize_player_name(name):
     # Replace special characters with their ASCII equivalents
     replacements = {
+        # Nordic characters
+        'ø': 'oo',
+        'Ø': 'OO',
+        'å': 'aa',
+        'Å': 'AA',
+        'æ': 'ae',
+        'Æ': 'AE',
+        
+        # Latin characters
         'é': 'e',
+        'è': 'e',
+        'ê': 'e',
+        'ë': 'e',
         'ò': 'o',
         'ó': 'o',
+        'ô': 'o',
+        'õ': 'o',
         'à': 'a',
         'á': 'a',
-        'è': 'e',
+        'â': 'a',
+        'ã': 'a',
         'ì': 'i',
         'í': 'i',
+        'î': 'i',
+        'ï': 'i',
         'ù': 'u',
         'ú': 'u',
+        'û': 'u',
+        'ü': 'u',
+        'ý': 'y',
+        'ÿ': 'y',
         'ñ': 'n',
         'ç': 'c',
-        'ë': 'e',
-        'ï': 'i',
-        'ü': 'u',
-        'ÿ': 'y',
+        
+        # Other special characters
         'œ': 'oe',
-        'æ': 'ae',
-        'ß': 'ss'
+        'Œ': 'OE',
+        'ß': 'ss',
+        'ð': 'd',
+        'Ð': 'D',
+        'þ': 'th',
+        'Þ': 'TH',
+        
+        # Special case for Magablood
+        'bløød': 'blood',
+        'Bløød': 'Blood'
     }
+    
     normalized = name
+    # First handle the special case for Magablood
+    if 'bløød' in normalized.lower():
+        normalized = normalized.replace('bløød', 'blood').replace('Bløød', 'Blood')
+    
+    # Then handle all other special characters
     for special, ascii_char in replacements.items():
         normalized = normalized.replace(special, ascii_char)
+    
     return normalized
 
 def export_to_csv(attempts, output_file):
@@ -289,7 +324,7 @@ def export_to_csv(attempts, output_file):
             offender_str = "; ".join(f"{player} ({count})" for player, count in offenders)
             writer4.writerow([mechanic, offender_str])
 
-def clean_data(input_file, output_file):
+def clean_data(input_file, output_file, csv_file):
     # Read the input file
     with open(input_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -297,6 +332,7 @@ def clean_data(input_file, output_file):
     attempts = []
     current_attempt = None
     current_events = []
+    current_timestamp = None
     
     for line in lines:
         line = line.strip()
@@ -314,16 +350,17 @@ def clean_data(input_file, output_file):
         if not cleaned_line:
             continue
             
-        # Check if this is a boss attempt header
+        # Check if this is a Mug'Zee attempt header
         if is_boss_attempt_header(cleaned_line):
             # Save previous attempt if it exists
-            if current_attempt:
+            if current_attempt and current_timestamp:  # Only save if we have both header and timestamp
                 attempts.append(Attempt(current_attempt, current_events, current_timestamp))
             current_attempt = cleaned_line
             current_events = []
+            current_timestamp = None  # Reset timestamp for new attempt
             continue
             
-        # If we're in a boss attempt, only keep relevant lines
+        # If we're in a Mug'Zee attempt, only keep relevant lines
         if current_attempt:
             if is_timestamp(cleaned_line):
                 current_timestamp = cleaned_line
@@ -331,8 +368,11 @@ def clean_data(input_file, output_file):
                 current_events.append("  " + cleaned_line)  # Indent events
     
     # Add the last attempt if there is one
-    if current_attempt:
+    if current_attempt and current_timestamp:  # Only add if we have both header and timestamp
         attempts.append(Attempt(current_attempt, current_events, current_timestamp))
+    
+    # Filter out any attempts that don't have events (might be from other bosses)
+    attempts = [attempt for attempt in attempts if attempt.events]
     
     # Sort attempts by timestamp
     attempts.sort(key=lambda x: x.datetime)
@@ -362,8 +402,9 @@ def clean_data(input_file, output_file):
         f.write(mistakes_output)
     
     # Export to CSV
-    export_to_csv(attempts, output_file)
+    export_to_csv(attempts, csv_file)
     print(f"Data has been cleaned and saved to {output_file}")
+    print(f"CSV data has been saved to {csv_file}")
     print("\nVerifying cleaning process...")
     verify_cleaning(input_file, output_file)
     print("Verification results have been saved to verification_results.txt")
@@ -504,4 +545,5 @@ def verify_cleaning(original_file, cleaned_file):
 if __name__ == "__main__":
     input_file = "data.txt"
     output_file = "cleaned_data.txt"
-    clean_data(input_file, output_file) 
+    csv_file = "cleaned_data.csv"
+    clean_data(input_file, output_file, csv_file) 
