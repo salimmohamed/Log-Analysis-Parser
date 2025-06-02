@@ -2,38 +2,206 @@ import re
 from datetime import datetime
 from collections import defaultdict
 import csv
+from abc import ABC, abstractmethod
 
-def is_boss_attempt_header(line):
-    # Only matches lines like "Mug'Zee #1   (4:33)"
-    # Explicitly check for Mug'Zee to filter out other bosses
-    return bool(re.match(r"Mug'Zee #\d+\s+\(\d+:\d+\)", line.strip()))
+class Boss(ABC):
+    def __init__(self, name):
+        self.name = name
+        self.mechanics = []
+        self.death_causes = []
+        self.non_player_mistakes = []
+
+    @abstractmethod
+    def is_attempt_header(self, line):
+        """Check if line is a boss attempt header"""
+        pass
+
+    @abstractmethod
+    def is_boss_event(self, line):
+        """Check if line is a boss-specific event"""
+        pass
+
+    @abstractmethod
+    def extract_player_death(self, line):
+        """Extract player name and death cause from event line"""
+        pass
+
+    @abstractmethod
+    def analyze_non_player_mistakes(self, attempts):
+        """Analyze non-player mistakes for this boss"""
+        pass
+
+    def format_attempt(self, attempt_number, header, duration):
+        """Format attempt header with new number"""
+        return f"{self.name} #{attempt_number}   ({duration}"
+
+class MugZee(Boss):
+    def __init__(self):
+        super().__init__("Mug'Zee")
+        self.mechanics = [
+            "Unstable Cluster Bomb",
+            "Goblin-Guided Rocket",
+            "Boss enrage",
+            "Goon enrage"
+        ]
+        self.death_causes = [
+            "Frostshatter Spear",
+            "Stormfury stun",
+            "Goon's frontal",
+            "Molten Golden Knuckles frontal",
+            "electrocution line",
+            "popping a mine"
+        ]
+        self.non_player_mistakes = [
+            "Unstable Cluster Bomb not soaked",
+            "Goblin-Guided Rocket under-soaked",
+            "Boss enrage",
+            "Goon enrage",
+            "popping mine"
+        ]
+
+    def is_attempt_header(self, line):
+        return "Mug'Zee #" in line
+
+    def is_boss_event(self, line):
+        return any(event in line for event in [
+            "died to",
+            "was not soaked",
+            "was soaked by fewer than",
+            "Boss enraged",
+            "Goon enraged",
+            "No mistakes found"
+        ])
+
+    def extract_player_death(self, event):
+        if "died to" in event:
+            match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), match.group(2)
+        return None, None
+
+    def analyze_non_player_mistakes(self, attempts):
+        mistakes = defaultdict(int)
+        for attempt in attempts:
+            for event in attempt.events:
+                if "was not soaked" in event:
+                    mistakes["Cluster bomb not soaked"] += 1
+                elif "was soaked by fewer than" in event:
+                    mistakes["Rocket under-soaked"] += 1
+                elif "Boss enraged" in event:
+                    mistakes["Boss enrage"] += 1
+                elif "Goon enraged" in event:
+                    mistakes["Goon enrage"] += 1
+        return mistakes
+
+class StixBunkjunker(Boss):
+    def __init__(self):
+        super().__init__("Stix Bunkjunker")
+        self.mechanics = [
+            "ball",
+            "bombshell",
+            "scrapmaster"
+        ]
+        self.death_causes = [
+            "ball expired",
+            "hit a bombshell",
+            "Bombshell did not die in time",
+            "missed their Scrapmaster"
+        ]
+        self.non_player_mistakes = [
+            "ball expired",
+            "hit a bombshell",
+            "Bombshell did not die in time",
+            "missed their Scrapmaster"
+        ]
+
+    def is_attempt_header(self, line):
+        return "Stix Bunkjunker #" in line
+
+    def is_boss_event(self, line):
+        return any(event in line for event in [
+            "died to",
+            "ball expired",
+            "hit a bombshell",
+            "Bombshell did not die in time",
+            "missed their Scrapmaster",
+            "No mistakes found"
+        ])
+
+    def extract_player_death(self, event):
+        # missed their Scrapmaster on <marker>
+        match = re.match(r"\s*(\w+) missed their Scrapmaster on (\w+) \(([^)]+)\)", event)
+        if match:
+            player = match.group(1)
+            marker = match.group(2)
+            return player, f"missed their Scrapmaster on {marker}"
+        # hit a bombshell
+        match = re.match(r"\s*(\w+) hit a bombshell \(([^)]+)\)", event)
+        if match:
+            player = match.group(1)
+            return player, "hit a bombshell"
+        # ball expired
+        match = re.match(r"\s*(\w+)'s ball expired \(([^)]+)\)", event)
+        if match:
+            player = match.group(1)
+            return player, "ball expired"
+        # died to
+        if "died to" in event:
+            match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), match.group(2)
+        return None, None
+
+    def analyze_non_player_mistakes(self, attempts):
+        mistakes = defaultdict(int)
+        for attempt in attempts:
+            for event in attempt.events:
+                if "ball expired" in event:
+                    mistakes["Ball expired"] += 1
+                elif "hit a bombshell" in event:
+                    mistakes["Hit bombshell"] += 1
+                elif "Bombshell did not die in time" in event:
+                    mistakes["Bombshell not killed"] += 1
+                elif "missed their Scrapmaster" in event:
+                    mistakes["Missed scrapmaster"] += 1
+        return mistakes
 
 def is_timestamp(line):
-    # Matches lines like "5/24/2025 6:40 PM"
-    return bool(re.match(r"\d+/\d+/\d{4}\s+\d+:\d+\s+[AP]M", line.strip()))
+    # Match [HH:MM:SS] or [HH:MM:SS.mmm] or M/D/YYYY H:MM AM/PM or M/D/YYYY at H:MM AM/PM
+    return bool(
+        re.match(r'\[\d{2}:\d{2}:\d{2}(\.\d{3})?\]', line.strip()) or
+        re.match(r'\d{1,2}/\d{1,2}/\d{4}(\s+at)?\s+\d{1,2}:\d{2}\s*[AP]M', line.strip())
+    )
 
-def is_boss_event(line):
-    # Matches lines that contain boss mechanics or deaths
-    boss_events = [
-        "died to",
-        "was not soaked",
-        "was soaked by fewer than",
-        "Boss enraged",
-        "Goon enraged",
-        "No mistakes found"
-    ]
-    return any(event in line for event in boss_events)
-
-def extract_player_death(line):
-    # Extract player name and death cause from a death event line
-    match = re.match(r"\s*(\w+)\s+died to (.*?)\s+\(.*\)", line)
+def parse_timestamp(line):
+    # Try [HH:MM:SS(.mmm)]
+    match = re.search(r'\[(\d{2}:\d{2}:\d{2}(\.\d{3})?)\]', line)
     if match:
-        return match.group(1), match.group(2)
-    return None, None
-
-def parse_timestamp(timestamp_str):
-    # Convert timestamp string to datetime object
-    return datetime.strptime(timestamp_str, "%m/%d/%Y %I:%M %p")
+        time_str = match.group(1)
+        try:
+            if '.' in time_str:
+                time_str, ms = time_str.split('.')
+                dt = datetime.strptime(time_str, '%H:%M:%S')
+                dt = dt.replace(microsecond=int(ms) * 1000)
+            else:
+                dt = datetime.strptime(time_str, '%H:%M:%S')
+            return dt
+        except ValueError:
+            return None
+    # Try M/D/YYYY H:MM AM/PM or M/D/YYYY at H:MM AM/PM
+    match = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+at)?\s+(\d{1,2}):(\d{2})\s*([AP]M)', line.strip())
+    if match:
+        month, day, year, hour, minute, ampm = match.groups()
+        month, day, year, hour, minute = map(int, [month, day, year, hour, minute])
+        if ampm == 'PM' and hour != 12:
+            hour += 12
+        elif ampm == 'AM' and hour == 12:
+            hour = 0
+        try:
+            return datetime(year, month, day, hour, minute)
+        except ValueError:
+            return None
+    return None
 
 def parse_attempt_duration(duration_str):
     # Extract minutes and seconds from duration string like "(4:33)"
@@ -44,11 +212,12 @@ def parse_attempt_duration(duration_str):
     return 0
 
 class Attempt:
-    def __init__(self, header, events, timestamp):
+    def __init__(self, header, events, timestamp, boss):
         self.header = header
         self.events = events
         self.timestamp = timestamp
         self.datetime = parse_timestamp(timestamp)
+        self.boss = boss
         # Extract duration from header
         duration_match = re.search(r"\((\d+):(\d+)\)", header)
         if duration_match:
@@ -59,18 +228,17 @@ class Attempt:
 
     def format_attempt(self, attempt_number):
         # Format the attempt with the new number
-        new_header = f"Mug'Zee #{attempt_number}   ({self.header.split('(')[1]}"
-        return [new_header] + self.events + [self.timestamp]
+        duration = self.header.split('(')[1]
+        return [self.boss.format_attempt(attempt_number, self.header, duration)] + self.events + [self.timestamp]
 
 def analyze_player_stats(attempts):
     player_stats = defaultdict(lambda: defaultdict(int))
     
     for attempt in attempts:
         for event in attempt.events:
-            if "died to" in event:
-                player, cause = extract_player_death(event)
-                if player and cause:
-                    player_stats[player][cause] += 1
+            player, cause = attempt.boss.extract_player_death(event)
+            if player and cause:
+                player_stats[player][cause] += 1
     
     return player_stats
 
@@ -145,186 +313,93 @@ def ordinal(n):
     return f"{n}{suffix}"
 
 def normalize_player_name(name):
-    # Replace special characters with their ASCII equivalents
-    replacements = {
-        # Nordic characters
-        'ø': 'oo',
-        'Ø': 'OO',
-        'å': 'aa',
-        'Å': 'AA',
-        'æ': 'ae',
-        'Æ': 'AE',
-        
-        # Latin characters
-        'é': 'e',
-        'è': 'e',
-        'ê': 'e',
-        'ë': 'e',
-        'ò': 'o',
-        'ó': 'o',
-        'ô': 'o',
-        'õ': 'o',
-        'à': 'a',
-        'á': 'a',
-        'â': 'a',
-        'ã': 'a',
-        'ì': 'i',
-        'í': 'i',
-        'î': 'i',
-        'ï': 'i',
-        'ù': 'u',
-        'ú': 'u',
-        'û': 'u',
-        'ü': 'u',
-        'ý': 'y',
-        'ÿ': 'y',
-        'ñ': 'n',
-        'ç': 'c',
-        
-        # Other special characters
-        'œ': 'oe',
-        'Œ': 'OE',
-        'ß': 'ss',
-        'ð': 'd',
-        'Ð': 'D',
-        'þ': 'th',
-        'Þ': 'TH',
-        
-        # Special case for Magablood
-        'bløød': 'blood',
-        'Bløød': 'Blood'
-    }
-    
-    normalized = name
-    # First handle the special case for Magablood
-    if 'bløød' in normalized.lower():
-        normalized = normalized.replace('bløød', 'blood').replace('Bløød', 'Blood')
-    
-    # Then handle all other special characters
-    for special, ascii_char in replacements.items():
-        normalized = normalized.replace(special, ascii_char)
-    
-    return normalized
+    # Remove any emoji patterns
+    name = re.sub(r':[^:]+:', '', name)
+    # Remove any extra whitespace
+    name = name.strip()
+    # Convert to title case for consistency
+    return name.title()
 
-def export_to_csv(attempts, output_file):
-    headers = [
-        'Pull #',
-        'Date',
-        'Duration',
-        'Events',
-        'Player Deaths'
-    ]
-    attempts_by_day = defaultdict(list)
-    for attempt in attempts:
-        day = attempt.datetime.strftime("%m/%d/%Y")
-        attempts_by_day[day].append(attempt)
-    sorted_days = sorted(attempts_by_day.keys(), key=lambda x: datetime.strptime(x, "%m/%d/%Y"))
-    rows = []
-    attempt_number = 1
-    for day in sorted_days:
-        day_attempts = attempts_by_day[day]
-        day_attempts.sort(key=lambda x: x.datetime)
-        for attempt in day_attempts:
-            # Process events - include both player deaths and raid events
-            simplified_events = []
-            has_non_player_mistake = False
-            for event in attempt.events:
-                event = event.strip()
-                if "died to" in event:
-                    match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
-                    if match:
-                        player, cause, time = match.groups()
-                        # Normalize player name and simplify the cause text
-                        player = normalize_player_name(player)
-                        cause = cause.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal").replace("electrocution line", "electric fence")
-                        simplified_events.append(f"{player} {cause}")
-                elif "was not soaked" in event:
-                    simplified_events.append("cluster bomb not soaked")
-                    has_non_player_mistake = True
-                elif "was soaked by fewer than" in event:
-                    simplified_events.append("rocket under-soaked")
-                    has_non_player_mistake = True
-                elif "Boss enraged" in event:
-                    simplified_events.append("boss enrage")
-                    has_non_player_mistake = True
-                elif "Goon enraged" in event:
-                    simplified_events.append("goon enrage")
-                    has_non_player_mistake = True
-                elif "No mistakes found" in event:
-                    simplified_events.append("messed up so bad bot couldn't find out")
-            # Process player deaths for the detailed column
-            death_times = []
-            for event in attempt.events:
-                if "died to" in event:
-                    match = re.search(r"(\w+)\s+died to.*?\(([^)]+)\)", event)
-                    if match:
-                        player, time = match.groups()
-                        # Normalize player name
-                        player = normalize_player_name(player)
-                        death_times.append((player, time))
-            formatted_deaths = []
-            for i, (player, time) in enumerate(death_times, 1):
-                formatted_deaths.append(f"{player} ({time}) ({ordinal(i)} Death)")
-            # Convert duration from seconds to minutes:seconds format
-            minutes = attempt.duration // 60
-            seconds = attempt.duration % 60
-            duration_formatted = f"{minutes}:{seconds:02d}"
-            # Determine the deaths column value
-            deaths_column = '; '.join(formatted_deaths) if formatted_deaths else ("insta-wipe" if has_non_player_mistake else "messed up so bad bot couldn't find out")
-            rows.append([
-                attempt_number,
-                attempt.datetime.strftime("%m/%d/%Y"),
-                duration_formatted,
-                '; '.join(simplified_events) if simplified_events else "messed up so bad bot couldn't find out",
-                deaths_column
-            ])
-            attempt_number += 1
-    # Write the main table
+def write_csv(rows, output_file):
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(headers)
+        writer.writerow(['Pull #', 'Date', 'Duration', 'Events', 'Player Deaths'])
         writer.writerows(rows)
-        # Add a blank line, then the raid mistakes tally
-        f.write("\nRaid Mistakes Tally:\n")
-        writer2 = csv.writer(f)
-        writer2.writerow(["Mistake Type", "Count"])
-        non_player_mistakes = analyze_non_player_mistakes(attempts)
-        for mistake, count in sorted(non_player_mistakes.items(), key=lambda x: x[1], reverse=True):
-            writer2.writerow([mistake, count])
-        # Add player mistake tally
-        f.write("\nPlayer Mistake Tally:\n")
-        writer3 = csv.writer(f)
-        writer3.writerow(["Player", "Total Mistakes"])
-        # Count mistakes for each player
-        player_mistakes = defaultdict(int)
-        mechanic_mistakes = defaultdict(lambda: defaultdict(int))
-        for attempt in attempts:
-            for event in attempt.events:
-                if "died to" in event:
-                    match = re.search(r"(\w+)\s+died to (.*?)\s+\([^)]+\)", event)
-                    if match:
-                        player = normalize_player_name(match.group(1))
-                        mechanic = match.group(2).strip()
-                        # Simplify mechanic names for consistency
-                        mechanic = mechanic.replace("the ", "").replace("Frostshatter Spear", "frost spear").replace("popping a mine", "mine").replace("the Stormfury stun", "stun").replace("the Goon's frontal", "goon frontal").replace("the Molten Golden Knuckles frontal", "boss frontal").replace("electrocution line", "electric fence")
-                        player_mistakes[player] += 1
-                        mechanic_mistakes[mechanic][player] += 1
-        # Sort players by total mistakes (descending)
-        sorted_players = sorted(player_mistakes.items(), key=lambda x: x[1], reverse=True)
-        for player, count in sorted_players:
-            writer3.writerow([player, count])
-        # Add mechanic mistake tally
-        f.write("\nMechanic Mistake Tally:\n")
-        writer4 = csv.writer(f)
-        writer4.writerow(["Mechanic", "Worst Offenders"])
-        # Sort mechanics alphabetically for consistent output
-        for mechanic in sorted(mechanic_mistakes.keys()):
-            # Get top 3 offenders for this mechanic
-            offenders = sorted(mechanic_mistakes[mechanic].items(), key=lambda x: x[1], reverse=True)[:3]
-            offender_str = "; ".join(f"{player} ({count})" for player, count in offenders)
-            writer4.writerow([mechanic, offender_str])
+    print(f"Wrote {len(rows)} rows to {output_file}")
 
-def clean_data(input_file, output_file, csv_file):
+def export_to_csv(attempts, output_file):
+    input_file = 'cleaned_data.txt'
+    with open(input_file, 'r', encoding='utf-8') as f:
+        lines = [line.rstrip('\n') for line in f]
+
+    # Find the separator line for summary/statistics
+    try:
+        stats_start = lines.index('='*50)
+    except ValueError:
+        stats_start = len(lines)
+
+    # Parse attempts section
+    attempts_lines = lines[:stats_start]
+    summary_lines = lines[stats_start:]
+
+    # Parse attempts into CSV rows
+    rows = []
+    i = 0
+    while i < len(attempts_lines):
+        line = attempts_lines[i]
+        if line.startswith('Stix Bunkjunker #') or line.startswith("Mug'Zee #"):
+            # Header line
+            header = line
+            events = []
+            i += 1
+            # Collect events until we hit a timestamp or blank line
+            while i < len(attempts_lines) and attempts_lines[i] and not attempts_lines[i][0].isdigit() and not attempts_lines[i].startswith('Stix Bunkjunker #') and not attempts_lines[i].startswith("Mug'Zee #"):
+                events.append(attempts_lines[i].strip())
+                i += 1
+            # Timestamp line
+            timestamp = ''
+            if i < len(attempts_lines) and attempts_lines[i] and attempts_lines[i][0].isdigit():
+                timestamp = attempts_lines[i]
+                i += 1
+            # Skip blank lines
+            while i < len(attempts_lines) and not attempts_lines[i]:
+                i += 1
+            # Parse header for pull # and duration
+            pull_match = re.search(r'#(\d+)', header)
+            duration_match = re.search(r'\((\d+):(\d+)\)', header)
+            pull_num = pull_match.group(1) if pull_match else ''
+            duration = ''
+            if duration_match:
+                minutes, seconds = duration_match.groups()
+                duration = f"{minutes}:{seconds.zfill(2)}"
+            # Events and deaths
+            event_strs = []
+            deaths = []
+            for ev in events:
+                if 'Death)' in ev or 'expired' in ev or 'missed their Scrapmaster' in ev or 'hit a bombshell' in ev or 'Bombshell did not die in time' in ev:
+                    deaths.append(ev)
+                else:
+                    event_strs.append(ev)
+            # For this format, just join all events as one string, and all deaths as one string
+            rows.append([
+                pull_num,
+                timestamp.split()[0] if timestamp else '',
+                duration,
+                '; '.join(event_strs) if event_strs else '',
+                '; '.join(deaths) if deaths else ''
+            ])
+        else:
+            i += 1
+
+    # Write to CSV (main table only)
+    write_csv(rows, output_file)
+
+    # Write summary/statistics to a separate txt file
+    with open('cleaned_data_summary.txt', 'w', encoding='utf-8') as f:
+        for line in summary_lines:
+            f.write(line + '\n')
+
+def clean_data(input_file, output_file, csv_file, boss):
     # Read the input file
     with open(input_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -333,64 +408,80 @@ def clean_data(input_file, output_file, csv_file):
     current_attempt = None
     current_events = []
     current_timestamp = None
+    current_pull_number = None
     
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
         # Skip the experimental warning line
         if ":warning: Experimental :warning:" in line:
             continue
-            
-        # Remove all emoji patterns (text surrounded by colons)
-        cleaned_line = re.sub(r':[^:]+:', '', line).strip()
-        
+        # For StixBunkjunker missed Scrapmaster, keep only the marker as a word, strip all other emojis
+        if isinstance(boss, StixBunkjunker) and 'missed their Scrapmaster on' in line:
+            # Extract marker
+            marker_match = re.search(r':Marker_(\w+):', line)
+            if marker_match:
+                marker = marker_match.group(1).lower()
+                # Remove all emojis
+                cleaned_line = re.sub(r':[^:]+:', '', line)
+                # Insert marker word at the end
+                cleaned_line = re.sub(r'missed their Scrapmaster on\s*', f'missed their Scrapmaster on {marker} ', cleaned_line)
+                cleaned_line = cleaned_line.strip()
+            else:
+                # If no marker found, just remove emojis
+                cleaned_line = re.sub(r':[^:]+:', '', line)
+        else:
+            # Remove all emoji patterns (text surrounded by colons)
+            cleaned_line = re.sub(r':[^:]+:', '', line).strip()
         # Skip if line is empty after cleaning
         if not cleaned_line:
             continue
-            
-        # Check if this is a Mug'Zee attempt header
-        if is_boss_attempt_header(cleaned_line):
-            # Save previous attempt if it exists
-            if current_attempt and current_timestamp:  # Only save if we have both header and timestamp
-                attempts.append(Attempt(current_attempt, current_events, current_timestamp))
-            current_attempt = cleaned_line
-            current_events = []
-            current_timestamp = None  # Reset timestamp for new attempt
+        # Check if this is a boss attempt header
+        if boss.is_attempt_header(cleaned_line):
+            # Extract pull number
+            pull_match = re.search(r'#(\d+)', cleaned_line)
+            if pull_match:
+                pull_number = int(pull_match.group(1))
+                # If this is the same pull number as current, append events instead of creating new attempt
+                if pull_number == current_pull_number:
+                    continue
+                # Save previous attempt if it exists
+                if current_attempt and current_timestamp:  # Only save if we have both header and timestamp
+                    # Remove any "Part X" from the attempt header
+                    current_attempt = re.sub(r'\s*-\s*Part\s+\d+', '', current_attempt)
+                    attempts.append(Attempt(current_attempt, current_events, current_timestamp, boss))
+                current_attempt = cleaned_line
+                current_events = []
+                current_timestamp = None  # Reset timestamp for new attempt
+                current_pull_number = pull_number
             continue
-            
-        # If we're in a Mug'Zee attempt, only keep relevant lines
+        # If we're in a boss attempt, only keep relevant lines
         if current_attempt:
             if is_timestamp(cleaned_line):
                 current_timestamp = cleaned_line
-            elif is_boss_event(cleaned_line):
+            elif boss.is_boss_event(cleaned_line):
                 current_events.append("  " + cleaned_line)  # Indent events
-    
     # Add the last attempt if there is one
     if current_attempt and current_timestamp:  # Only add if we have both header and timestamp
-        attempts.append(Attempt(current_attempt, current_events, current_timestamp))
-    
+        # Remove any "Part X" from the attempt header
+        current_attempt = re.sub(r'\s*-\s*Part\s+\d+', '', current_attempt)
+        attempts.append(Attempt(current_attempt, current_events, current_timestamp, boss))
     # Filter out any attempts that don't have events (might be from other bosses)
     attempts = [attempt for attempt in attempts if attempt.events]
-    
     # Sort attempts by timestamp
     attempts.sort(key=lambda x: x.datetime)
-    
     # Generate the cleaned output with renumbered attempts
     cleaned_lines = []
     for i, attempt in enumerate(attempts, 1):
         cleaned_lines.extend(attempt.format_attempt(i))
         cleaned_lines.append("")  # Add blank line between attempts
-    
     # Analyze player statistics
     player_stats = analyze_player_stats(attempts)
     stats_output = format_player_stats(player_stats)
-    
     # Analyze non-player mistakes
-    non_player_mistakes = analyze_non_player_mistakes(attempts)
+    non_player_mistakes = boss.analyze_non_player_mistakes(attempts)
     mistakes_output = format_non_player_mistakes(non_player_mistakes)
-    
     # Write the cleaned data and statistics to the output file
     with open(output_file, 'w', encoding='utf-8') as f:
         # Write the attempt data
@@ -400,7 +491,6 @@ def clean_data(input_file, output_file, csv_file):
         f.write(stats_output)
         # Write the non-player mistakes summary
         f.write(mistakes_output)
-    
     # Export to CSV
     export_to_csv(attempts, csv_file)
     print(f"Data has been cleaned and saved to {output_file}")
@@ -409,141 +499,61 @@ def clean_data(input_file, output_file, csv_file):
     verify_cleaning(input_file, output_file)
     print("Verification results have been saved to verification_results.txt")
 
-def verify_cleaning(original_file, cleaned_file):
-    verification_results = ["Starting verification process..."]
+def verify_cleaning(input_file, output_file):
+    with open(input_file, 'r', encoding='utf-8') as f:
+        input_lines = f.readlines()
+    with open(output_file, 'r', encoding='utf-8') as f:
+        output_lines = f.readlines()
     
-    # Read both files
-    with open(original_file, 'r', encoding='utf-8') as f:
-        original_lines = [line.strip() for line in f.readlines() if line.strip()]
-    with open(cleaned_file, 'r', encoding='utf-8') as f:
-        cleaned_lines = [line.strip() for line in f.readlines() if line.strip()]
+    # Skip the experimental warning line in input
+    input_lines = [line for line in input_lines if ":warning: Experimental :warning:" not in line]
     
-    # Extract attempts from both files
-    original_attempts = []
-    cleaned_attempts = []
-    current_attempt = []
-    current_cleaned_attempt = []
+    # Remove all emoji patterns (text surrounded by colons) from input
+    input_lines = [re.sub(r':[^:]+:', '', line).strip() for line in input_lines]
+    input_lines = [line for line in input_lines if line]  # Remove empty lines
     
-    for line in original_lines:
-        if is_boss_attempt_header(line):
-            if current_attempt:
-                original_attempts.append(current_attempt)
-            current_attempt = [line]
-        elif current_attempt and (is_timestamp(line) or is_boss_event(line)):
-            # Remove emojis and experimental warning
-            cleaned_line = re.sub(r':[^:]+:', '', line).strip()
-            if cleaned_line and ":warning: Experimental :warning:" not in line:
-                current_attempt.append(cleaned_line)
-    if current_attempt:
-        original_attempts.append(current_attempt)
+    # Remove statistics section from output
+    stats_start = output_lines.index("="*50 + "\n")
+    output_lines = output_lines[:stats_start]
+    output_lines = [line.strip() for line in output_lines if line.strip()]
     
-    for line in cleaned_lines:
-        if is_boss_attempt_header(line):
-            if current_cleaned_attempt:
-                cleaned_attempts.append(current_cleaned_attempt)
-            current_cleaned_attempt = [line]
-        elif current_cleaned_attempt and (is_timestamp(line) or is_boss_event(line)):
-            current_cleaned_attempt.append(line)
-    if current_cleaned_attempt:
-        cleaned_attempts.append(current_cleaned_attempt)
+    # Verify that all output lines exist in input
+    missing_lines = []
+    for line in output_lines:
+        if line not in input_lines:
+            missing_lines.append(line)
     
-    # Compare number of attempts
-    verification_results.append(f"\nAttempt count comparison:")
-    verification_results.append(f"Original attempts: {len(original_attempts)}")
-    verification_results.append(f"Cleaned attempts: {len(cleaned_attempts)}")
-    
-    if len(original_attempts) != len(cleaned_attempts):
-        verification_results.append("WARNING: Number of attempts doesn't match!")
-    
-    # Compare timestamps
-    original_timestamps = set()
-    cleaned_timestamps = set()
-    
-    for attempt in original_attempts:
-        for line in attempt:
-            if is_timestamp(line):
-                original_timestamps.add(line)
-    
-    for attempt in cleaned_attempts:
-        for line in attempt:
-            if is_timestamp(line):
-                cleaned_timestamps.add(line)
-    
-    verification_results.append(f"\nTimestamp comparison:")
-    verification_results.append(f"Original unique timestamps: {len(original_timestamps)}")
-    verification_results.append(f"Cleaned unique timestamps: {len(cleaned_timestamps)}")
-    
-    if original_timestamps != cleaned_timestamps:
-        verification_results.append("WARNING: Timestamps don't match exactly!")
-        verification_results.append("Timestamps in original but not in cleaned: " + str(original_timestamps - cleaned_timestamps))
-        verification_results.append("Timestamps in cleaned but not in original: " + str(cleaned_timestamps - original_timestamps))
-    
-    # Compare events
-    original_events = defaultdict(int)
-    cleaned_events = defaultdict(int)
-    
-    for attempt in original_attempts:
-        for line in attempt:
-            if is_boss_event(line) and "died to" not in line:
-                event = re.sub(r':[^:]+:', '', line).strip()
-                if event and ":warning: Experimental :warning:" not in event:
-                    original_events[event] += 1
-    
-    for attempt in cleaned_attempts:
-        for line in attempt:
-            if is_boss_event(line) and "died to" not in line:
-                cleaned_events[line] += 1
-    
-    verification_results.append(f"\nEvent comparison:")
-    verification_results.append("Events in original but not in cleaned:")
-    for event, count in original_events.items():
-        if event not in cleaned_events or cleaned_events[event] != count:
-            verification_results.append(f"  {event}: {count} times in original, {cleaned_events.get(event, 0)} times in cleaned")
-    
-    verification_results.append("\nEvents in cleaned but not in original:")
-    for event, count in cleaned_events.items():
-        if event not in original_events or original_events[event] != count:
-            verification_results.append(f"  {event}: {count} times in cleaned, {original_events.get(event, 0)} times in original")
-    
-    # Compare player deaths
-    original_deaths = defaultdict(lambda: defaultdict(int))
-    cleaned_deaths = defaultdict(lambda: defaultdict(int))
-    
-    for attempt in original_attempts:
-        for line in attempt:
-            if "died to" in line:
-                player, cause = extract_player_death(line)
-                if player and cause:
-                    original_deaths[player][cause] += 1
-    
-    for attempt in cleaned_attempts:
-        for line in attempt:
-            if "died to" in line:
-                player, cause = extract_player_death(line)
-                if player and cause:
-                    cleaned_deaths[player][cause] += 1
-    
-    verification_results.append(f"\nPlayer death comparison:")
-    verification_results.append("Deaths in original but not in cleaned:")
-    for player in original_deaths:
-        for cause, count in original_deaths[player].items():
-            if player not in cleaned_deaths or cause not in cleaned_deaths[player] or cleaned_deaths[player][cause] != count:
-                verification_results.append(f"  {player} - {cause}: {count} times in original, {cleaned_deaths.get(player, {}).get(cause, 0)} times in cleaned")
-    
-    verification_results.append("\nDeaths in cleaned but not in original:")
-    for player in cleaned_deaths:
-        for cause, count in cleaned_deaths[player].items():
-            if player not in original_deaths or cause not in original_deaths[player] or original_deaths[player][cause] != count:
-                verification_results.append(f"  {player} - {cause}: {count} times in cleaned, {original_deaths.get(player, {}).get(cause, 0)} times in original")
-    
-    # Write verification results to file
+    # Write verification results
     with open("verification_results.txt", 'w', encoding='utf-8') as f:
-        f.write("\n".join(verification_results))
-    
-    return verification_results
+        f.write("Verification Results:\n\n")
+        if not missing_lines:
+            f.write("All lines in the cleaned output exist in the original input.\n")
+        else:
+            f.write("The following lines in the cleaned output were not found in the original input:\n")
+            for line in missing_lines:
+                f.write(f"- {line}\n")
+        
+        # Add statistics about the cleaning process
+        f.write("\nCleaning Statistics:\n")
+        f.write(f"Original input lines: {len(input_lines)}\n")
+        f.write(f"Cleaned output lines: {len(output_lines)}\n")
+        f.write(f"Lines removed: {len(input_lines) - len(output_lines)}\n")
+        if missing_lines:
+            f.write(f"Lines not found in original: {len(missing_lines)}\n")
 
 if __name__ == "__main__":
     input_file = "data.txt"
     output_file = "cleaned_data.txt"
     csv_file = "cleaned_data.csv"
-    clean_data(input_file, output_file, csv_file) 
+    
+    # Create boss instance based on input file content
+    with open(input_file, 'r', encoding='utf-8') as f:
+        first_line = f.readline().strip()
+        if "Mug'Zee" in first_line:
+            boss = MugZee()
+        elif "Stix Bunkjunker" in first_line:
+            boss = StixBunkjunker()
+        else:
+            raise ValueError("Unknown boss type in input file")
+    
+    clean_data(input_file, output_file, csv_file, boss) 
