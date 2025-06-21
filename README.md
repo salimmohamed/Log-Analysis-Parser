@@ -8,7 +8,7 @@ A sophisticated Python-based log analysis tool designed to process and analyze W
 
 ## 🎯 Project Overview
 
-This tool was developed to enhance the capabilities of the Log Analysis App Discord bot, which provides real-time raid log analysis for World of Warcraft raid teams. Currently focused on the Mug'Zee encounter, the parser:
+This tool was developed to enhance the capabilities of the Log Analysis App Discord bot, which provides real-time raid log analysis for World of Warcraft raid teams. The parser supports multiple boss encounters and:
 
 - Transforms Discord-formatted logs into structured data
 - Provides deeper analysis than the bot's basic output
@@ -25,12 +25,15 @@ This tool was developed to enhance the capabilities of the Log Analysis App Disc
 - Designed for easy extension to future boss encounters
 
 ### Current Scope
-- **Boss Focus**: Mug'Zee encounter analysis
+- **Supported Bosses**: 
+  - **Mug'Zee**: Goblin-themed encounter with cluster bombs and rockets
+  - **Stix Bunkjunker**: Mechanical boss with scrapmaster mechanics and bombshells
+  - **Gallywix**: Complex encounter with canisters, enrage mechanics, and multiple phases
 - **Mechanics Tracked**: 
-  - Unstable Cluster Bomb soaking
-  - Goblin-Guided Rocket soaking
-  - Boss/Goon enrage
-  - Player-specific mechanics (Frostshatter Spear, Stormfury stun, etc.)
+  - Boss-specific mechanics for each encounter
+  - Player deaths and mistake analysis
+  - Raid-wide mechanic failures
+  - Performance timing and duration tracking
 - **Analysis Depth**: Detailed tracking of both raid-wide and individual player performance
 
 ### Extensibility
@@ -48,6 +51,7 @@ The modular design allows for easy adaptation to:
 - **Data Structures**: Efficient use of defaultdict for data aggregation
 - **CSV Processing**: Structured data export for easy analysis
 - **Character Encoding**: Sophisticated handling of Unicode characters
+- **Object-Oriented Design**: Modular boss class system for easy extension
 
 ### Key Technical Features
 - **Pattern Recognition**: Complex regex patterns to identify and categorize raid events
@@ -55,6 +59,7 @@ The modular design allows for easy adaptation to:
 - **Statistical Analysis**: Automated generation of detailed performance metrics
 - **Data Verification**: Built-in validation system ensuring parsing accuracy
 - **Modular Design**: Clean, maintainable code structure with separate concerns
+- **Boss-Specific Parsing**: Custom logic for each boss encounter's unique mechanics
 
 ## 📊 Features
 
@@ -63,12 +68,14 @@ The modular design allows for easy adaptation to:
 - Automated extraction of player deaths and raid mechanics
 - Special character normalization for consistent data handling
 - Duration calculation and attempt sequencing
+- Boss-specific event detection and parsing
 
 ### Analysis Capabilities
 - **Raid Mistakes Tally**: Tracks non-player mistakes (e.g., unsoaked mechanics)
 - **Player Mistake Tally**: Individual player performance metrics
 - **Mechanic Mistake Tally**: Detailed analysis of specific mechanic failures
 - **Time-based Analysis**: Duration tracking for performance optimization
+- **Boss-Specific Analysis**: Custom metrics for each boss encounter
 
 ### Output Generation
 - **CSV Export**: Structured data for spreadsheet analysis
@@ -106,7 +113,9 @@ Mug'Zee #1   (4:33)
 
 ## 🔍 Technical Details
 
-### Tracked Mechanics
+### Tracked Mechanics by Boss
+
+#### Mug'Zee
 - **Raid Mechanics**:
   - Unstable Cluster Bomb soaking
   - Goblin-Guided Rocket soaking
@@ -118,6 +127,27 @@ Mug'Zee #1   (4:33)
   - Molten Golden Knuckles frontal
   - Electric fence
   - Mine management
+
+#### Stix Bunkjunker
+- **Raid Mechanics**:
+  - Ball management and expiration
+  - Bombshell handling
+  - Scrapmaster mechanics with markers
+- **Player Mechanics**:
+  - Ball expiration
+  - Bombshell hits
+  - Missed scrapmaster assignments
+
+#### Gallywix
+- **Raid Mechanics**:
+  - Canister soaking (DPS and Heal variants)
+  - Wrenchmonger enrage management
+  - Sentry Shock Barrage handling
+  - Technician Juice It mechanics
+- **Player Mechanics**:
+  - Giga Blast and residue damage
+  - Cuff Bomb management
+  - Various boss abilities and adds
 
 ### Data Verification System
 - Attempt count validation
@@ -155,4 +185,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-*Developed as a personal project to enhance the capabilities of the Log Analysis App Discord bot. Currently focused on the Mug'Zee encounter, this tool demonstrates the potential for automated raid log analysis across multiple boss encounters. The modular design allows for easy extension to future boss fights and raid tiers. Join the [Log Analysis App Discord](https://discord.gg/BsDUfgKddA) to learn more about raid log analysis.* 
+*Developed as a personal project to enhance the capabilities of the Log Analysis App Discord bot. Currently supporting Mug'Zee, Stix Bunkjunker, and Gallywix encounters, this tool demonstrates the potential for automated raid log analysis across multiple boss encounters. The modular design allows for easy extension to future boss fights and raid tiers. Join the [Log Analysis App Discord](https://discord.gg/BsDUfgKddA) to learn more about raid log analysis.* 
