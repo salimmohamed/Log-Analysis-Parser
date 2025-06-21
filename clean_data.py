@@ -166,6 +166,114 @@ class StixBunkjunker(Boss):
                     mistakes["Missed scrapmaster"] += 1
         return mistakes
 
+class Gallywix(Boss):
+    def __init__(self):
+        super().__init__("Gallywix")
+        self.mechanics = [
+            "Giga Blast",
+            "Giga Blast Residue",
+            "Overloaded Rockets",
+            "Bigger Badder Bomb Blast",
+            "Bad Belated Boom",
+            "Cuff Bomb",
+            "boss landing",
+            "Sabotage Zone",
+            "clicking a dud",
+            "boss aggro",
+            "Wrenchmonger enrage",
+            "Sentry Shock Barrage",
+            "Technicians' Juice It",
+            "Haywire Workshop",
+            "Mayhem Rockets"
+        ]
+        self.death_causes = [
+            "Giga Blast",
+            "Giga Blast Residue",
+            "Overloaded Rockets",
+            "Bigger Badder Bomb Blast",
+            "Bad Belated Boom",
+            "Cuff Bomb",
+            "boss landing",
+            "Sabotage Zone",
+            "clicking a dud",
+            "boss aggro",
+            "Wrenchmonger enrage",
+            "Sentry Shock Barrage",
+            "Haywire Workshop",
+            "Mayhem Rockets"
+        ]
+        self.non_player_mistakes = [
+            "Canister under-soaked",
+            "Wrenchmonger enrage",
+            "Sentry Shock Barrage",
+            "Technicians' Juice It",
+            "No mistakes found"
+        ]
+
+    def is_attempt_header(self, line):
+        return "Gallywix #" in line
+
+    def is_boss_event(self, line):
+        return any(event in line for event in [
+            "died to",
+            "was hit by",
+            "died with",
+            "was soaked by fewer than",
+            "was enraged",
+            "cast went off",
+            "No mistakes found"
+        ])
+
+    def extract_player_death(self, event):
+        # died to
+        if "died to" in event:
+            match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), match.group(2)
+        # was hit by (non-fatal)
+        if "was hit by" in event:
+            match = re.search(r"(\w+)\s+was hit by (.*?)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), f"hit by {match.group(2)}"
+        # died with
+        if "died with" in event:
+            match = re.search(r"(\w+)\s+died with (.*?)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), f"died with {match.group(2)}"
+        # was enraged and killed
+        if "was enraged" in event and "killed" in event:
+            match = re.search(r"\[-\]\s+\w+\s+\d+.*?killed\s+(\w+)\s+\(([^)]+)\)", event)
+            if match:
+                return match.group(1), "killed by enraged add"
+        return None, None
+
+    def analyze_non_player_mistakes(self, attempts):
+        mistakes = defaultdict(int)
+        canister_breakdown = defaultdict(int)
+        for attempt in attempts:
+            for event in attempt.events:
+                if "was soaked by fewer than" in event:
+                    # Extract canister number and type
+                    match = re.search(r'(DPS|Heal)\s+Canister\s+#(\d+)\s+was soaked by fewer than', event)
+                    if match:
+                        canister_type = match.group(1)
+                        canister_number = match.group(2)
+                        canister_key = f"{canister_type} Canister #{canister_number}"
+                        canister_breakdown[canister_key] += 1
+                    mistakes["Canister under-soaked"] += 1
+                elif "was enraged" in event and "killed" in event:
+                    mistakes["Wrenchmonger enrage"] += 1
+                elif "Shock Barrage cast went off" in event:
+                    mistakes["Sentry Shock Barrage"] += 1
+                elif "Juice It cast(s) went off" in event:
+                    mistakes["Technicians' Juice It"] += 1
+        
+        # Add detailed canister breakdown to mistakes
+        for canister, count in canister_breakdown.items():
+            mistakes[f"{canister} under-soaked"] = count
+            
+        return mistakes
+
 def is_timestamp(line):
     # Match [HH:MM:SS] or [HH:MM:SS.mmm] or M/D/YYYY H:MM AM/PM or M/D/YYYY at H:MM AM/PM
     return bool(
@@ -347,13 +455,13 @@ def export_to_csv(attempts, output_file):
     i = 0
     while i < len(attempts_lines):
         line = attempts_lines[i]
-        if line.startswith('Stix Bunkjunker #') or line.startswith("Mug'Zee #"):
+        if line.startswith('Stix Bunkjunker #') or line.startswith("Mug'Zee #") or line.startswith('Gallywix #'):
             # Header line
             header = line
             events = []
             i += 1
             # Collect events until we hit a timestamp or blank line
-            while i < len(attempts_lines) and attempts_lines[i] and not attempts_lines[i][0].isdigit() and not attempts_lines[i].startswith('Stix Bunkjunker #') and not attempts_lines[i].startswith("Mug'Zee #"):
+            while i < len(attempts_lines) and attempts_lines[i] and not attempts_lines[i][0].isdigit() and not attempts_lines[i].startswith('Stix Bunkjunker #') and not attempts_lines[i].startswith("Mug'Zee #") and not attempts_lines[i].startswith('Gallywix #'):
                 events.append(attempts_lines[i].strip())
                 i += 1
             # Timestamp line
@@ -376,7 +484,7 @@ def export_to_csv(attempts, output_file):
             event_strs = []
             deaths = []
             for ev in events:
-                if 'Death)' in ev or 'expired' in ev or 'missed their Scrapmaster' in ev or 'hit a bombshell' in ev or 'Bombshell did not die in time' in ev:
+                if 'Death)' in ev or 'expired' in ev or 'missed their Scrapmaster' in ev or 'hit a bombshell' in ev or 'Bombshell did not die in time' in ev or 'died to' in ev or 'died with' in ev or 'was hit by' in ev or 'killed' in ev:
                     deaths.append(ev)
                 else:
                     event_strs.append(ev)
@@ -548,11 +656,13 @@ if __name__ == "__main__":
     
     # Create boss instance based on input file content
     with open(input_file, 'r', encoding='utf-8') as f:
-        first_line = f.readline().strip()
-        if "Mug'Zee" in first_line:
+        content = f.read()
+        if "Mug'Zee" in content:
             boss = MugZee()
-        elif "Stix Bunkjunker" in first_line:
+        elif "Stix Bunkjunker" in content:
             boss = StixBunkjunker()
+        elif "Gallywix" in content:
+            boss = Gallywix()
         else:
             raise ValueError("Unknown boss type in input file")
     
