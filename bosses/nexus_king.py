@@ -47,7 +47,14 @@ class NexusKing(Boss):
         if "died to" in event:
             match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
             if match:
-                return match.group(1), match.group(2)
+                # Normalize sweeping breath events
+                cause = match.group(2)
+                if "sweeping breath" in cause:
+                    return match.group(1), "died to beam"
+                elif "tank frontal" in cause:
+                    return match.group(1), "died to tank frontal"
+                else:
+                    return match.group(1), f"died to {cause}"
         
         # Handle "failed to face their spirits" events
         if "failed to face their spirits" in event:
@@ -59,7 +66,14 @@ class NexusKing(Boss):
         if "got MC'd" in event:
             match = re.search(r"(\w+)\s+got MC'd from (.*?)\s+\(([^)]+)\)", event)
             if match:
-                return match.group(1), f"MC'd from {match.group(2)}"
+                # Normalize to same names as death events
+                cause = match.group(2)
+                if "sweeping breath" in cause:
+                    return match.group(1), "died to beam"
+                elif "tank frontal" in cause:
+                    return match.group(1), "died to tank frontal"
+                else:
+                    return match.group(1), f"MC'd from {cause}"
         
         return None, None
 
