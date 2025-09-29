@@ -16,7 +16,7 @@ def format_non_player_mistakes(mistakes: Dict[str, int]) -> str:
     output.append(f"Total non-player mistakes: {total_mistakes}")
     output.append("")
     
-    # Sort mistakes by frequency
+    # Sort by frequency
     sorted_mistakes = sorted(mistakes.items(), key=lambda x: x[1], reverse=True)
     for mistake, count in sorted_mistakes:
         output.append(f"{mistake}: {count} times")

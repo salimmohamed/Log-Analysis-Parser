@@ -8,7 +8,7 @@ from datetime import datetime
 
 def is_timestamp(line: str) -> bool:
     """Check if line contains a timestamp."""
-    # Match [HH:MM:SS] or [HH:MM:SS.mmm] or M/D/YYYY H:MM AM/PM or M/D/YYYY at H:MM AM/PM or "Today at H:MM AM/PM"
+    # Match various timestamp formats from Discord bot
     return bool(
         re.match(r'\[\d{2}:\d{2}:\d{2}(\.\d{3})?\]', line.strip()) or
         re.match(r'\d{1,2}/\d{1,2}/\d{4}(\s+at)?\s+\d{1,2}:\d{2}\s*[AP]M', line.strip()) or
@@ -18,7 +18,7 @@ def is_timestamp(line: str) -> bool:
 
 def parse_timestamp(line: str) -> datetime:
     """Parse timestamp from line."""
-    # Try [HH:MM:SS(.mmm)]
+    # Try [HH:MM:SS(.mmm)] format
     match = re.search(r'\[(\d{2}:\d{2}:\d{2}(\.\d{3})?)\]', line)
     if match:
         time_str = match.group(1)
@@ -31,8 +31,9 @@ def parse_timestamp(line: str) -> datetime:
                 dt = datetime.strptime(time_str, '%H:%M:%S')
             return dt
         except ValueError:
-            return None
-    # Try M/D/YYYY H:MM AM/PM or M/D/YYYY at H:MM AM/PM
+            pass  # Try next format
+    
+    # Try M/D/YYYY H:MM AM/PM format
     match = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+at)?\s+(\d{1,2}):(\d{2})\s*([AP]M)', line.strip())
     if match:
         month, day, year, hour, minute, ampm = match.groups()
@@ -44,7 +45,7 @@ def parse_timestamp(line: str) -> datetime:
         try:
             return datetime(year, month, day, hour, minute)
         except ValueError:
-            return None
+            pass  # Try next format
     
     # Try "Today at H:MM AM/PM" format
     match = re.match(r'Today at (\d{1,2}):(\d{2})\s*([AP]M)', line.strip())
@@ -61,15 +62,7 @@ def parse_timestamp(line: str) -> datetime:
             today = date.today()
             return datetime(today.year, today.month, today.day, hour, minute)
         except ValueError:
-            return None
+            pass  # Give up
     
     return None
 
-
-def parse_attempt_duration(duration_str: str) -> int:
-    """Extract seconds from duration string like "(4:33)"."""
-    match = re.match(r"\((\d+):(\d+)\)", duration_str)
-    if match:
-        minutes, seconds = map(int, match.groups())
-        return minutes * 60 + seconds
-    return 0

@@ -1,5 +1,5 @@
 """
-Nexus-King boss implementation for the new raid tier.
+Nexus-King boss implementation - current raid tier.
 """
 
 import re
@@ -43,11 +43,11 @@ class NexusKing(Boss):
         ])
 
     def extract_player_death(self, event: str) -> Tuple[Optional[str], Optional[str]]:
-        # Handle "died to" events
+        # Handle actual deaths
         if "died to" in event:
             match = re.search(r"(\w+)\s+died to (.*?)\s+\(([^)]+)\)", event)
             if match:
-                # Normalize sweeping breath events
+                # Normalize beam deaths to consistent naming
                 cause = match.group(2)
                 if "sweeping breath" in cause:
                     return match.group(1), "died to beam"
@@ -56,17 +56,17 @@ class NexusKing(Boss):
                 else:
                     return match.group(1), f"died to {cause}"
         
-        # Handle "failed to face their spirits" events
+        # Handle spirit failures
         if "failed to face their spirits" in event:
             match = re.search(r"(\w+)\s+failed to face their spirits", event)
             if match:
                 return match.group(1), "failed to face their spirits"
         
-        # Handle "got MC'd" events (these are mistakes, not deaths)
+        # Handle MC events (these count as mistakes)
         if "got MC'd" in event:
             match = re.search(r"(\w+)\s+got MC'd from (.*?)\s+\(([^)]+)\)", event)
             if match:
-                # Normalize to same names as death events
+                # Use same naming as death events for consistency
                 cause = match.group(2)
                 if "sweeping breath" in cause:
                     return match.group(1), "died to beam"
@@ -82,7 +82,7 @@ class NexusKing(Boss):
         
         for attempt in attempts:
             for event in attempt.events:
-                # Only count actual non-player mistakes (like boss enrage, mechanics failing, etc.)
+                # Nexus-King doesn't really have non-player mistakes
                 # Player mistakes like MC'd, failed to face spirits are handled in player stats
                 if "No mistakes found" in event:
                     # This would be a non-player mistake if it existed

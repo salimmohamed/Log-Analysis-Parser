@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 
 
 def analyze_player_stats(attempts: List[Any]) -> Dict[str, Dict[str, int]]:
-    """Analyze player death statistics from attempts."""
+    """Count up player mistakes from all attempts."""
     player_stats = defaultdict(lambda: defaultdict(int))
     
     for attempt in attempts:
@@ -20,25 +20,25 @@ def analyze_player_stats(attempts: List[Any]) -> Dict[str, Dict[str, int]]:
 
 
 def format_player_stats(player_stats: Dict[str, Dict[str, int]]) -> str:
-    """Format player statistics for output."""
+    """Format player stats for output."""
     output = ["Player Statistics:\n"]
     
-    # Sort players by total deaths
+    # Sort by total mistakes
     sorted_players = sorted(
         player_stats.items(),
         key=lambda x: sum(x[1].values()),
         reverse=True
     )
     
-    for player, causes in sorted_players:
-        total_deaths = sum(causes.values())
-        if total_deaths == 0:
+    for player, mistakes in sorted_players:
+        total_mistakes = sum(mistakes.values())
+        if total_mistakes == 0:
             continue
             
-        # Format the causes
-        cause_list = [f"{cause} x{count}" for cause, count in sorted(causes.items(), key=lambda x: x[1], reverse=True)]
-        output.append(f"{player} (Total deaths: {total_deaths})")
-        output.append("  " + ", ".join(cause_list))
+        # Show mistake breakdown
+        mistake_list = [f"{mistake} x{count}" for mistake, count in sorted(mistakes.items(), key=lambda x: x[1], reverse=True)]
+        output.append(f"{player} (Total deaths: {total_mistakes})")
+        output.append("  " + ", ".join(mistake_list))
         output.append("")  # Blank line between players
     
     return "\n".join(output)
