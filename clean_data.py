@@ -5,7 +5,7 @@ Modular log analysis parser with automatic boss detection.
 import re
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Any
+from typing import List, Any, Dict
 
 # Import our modular components
 from bosses import detect_boss_from_content
@@ -55,6 +55,42 @@ def ordinal(n: int) -> str:
     else:
         suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
     return f"{n}{suffix}"
+
+
+def generate_worst_offenders(player_stats: Dict[str, Dict[str, int]]) -> str:
+    """Generate worst offenders section showing top 5 players for each event type."""
+    if not player_stats:
+        return ""
+    
+    # Collect all event types and their counts
+    event_totals = defaultdict(int)
+    for player, causes in player_stats.items():
+        for cause, count in causes.items():
+            event_totals[cause] += count
+    
+    # Sort events by total frequency
+    sorted_events = sorted(event_totals.items(), key=lambda x: x[1], reverse=True)
+    
+    output = ["\nWorst Offenders:\n"]
+    
+    for event, total_count in sorted_events:
+        # Find top 5 players for this event
+        player_counts = []
+        for player, causes in player_stats.items():
+            if event in causes:
+                player_counts.append((player, causes[event]))
+        
+        # Sort by count (descending) and take top 5
+        player_counts.sort(key=lambda x: x[1], reverse=True)
+        top_5 = player_counts[:5]
+        
+        if top_5:
+            output.append(f"{event} (Total: {total_count}):")
+            for i, (player, count) in enumerate(top_5, 1):
+                output.append(f"  {i}. {player}: {count} times")
+            output.append("")  # Blank line between events
+    
+    return "\n".join(output)
 
 
 def clean_data(input_file: str, output_file: str, csv_file: str, boss) -> None:
@@ -147,6 +183,9 @@ def clean_data(input_file: str, output_file: str, csv_file: str, boss) -> None:
     non_player_mistakes = boss.analyze_non_player_mistakes(attempts)
     mistakes_output = format_non_player_mistakes(non_player_mistakes)
     
+    # Generate worst offenders section
+    worst_offenders = generate_worst_offenders(player_stats)
+    
     # Write the cleaned data and statistics to the output file
     with open(output_file, 'w', encoding='utf-8') as f:
         # Write the attempt data
@@ -154,6 +193,8 @@ def clean_data(input_file: str, output_file: str, csv_file: str, boss) -> None:
         f.write("\n" + "="*50 + "\n\n")  # Separator
         # Write the player statistics
         f.write(stats_output)
+        # Write the worst offenders section
+        f.write(worst_offenders)
         # Write the non-player mistakes summary
         f.write(mistakes_output)
     
