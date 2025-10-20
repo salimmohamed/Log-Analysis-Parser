@@ -8,7 +8,16 @@ from typing import List, Tuple, Optional, Dict, Any
 
 
 class Boss(ABC):
-    """Base class for all boss encounters."""
+    """
+    Base class for all boss encounters.
+    
+    Subclasses must define a class-level 'detection_patterns' attribute:
+    A list of strings used to identify the boss from log file content.
+    
+    Example:
+        class NexusKing(Boss):
+            detection_patterns = ['nexus-king', 'Nexus-King']
+    """
     
     def __init__(self, name: str):
         self.name = name

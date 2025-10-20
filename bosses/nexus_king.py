@@ -11,6 +11,8 @@ from .base import Boss
 class NexusKing(Boss):
     """Nexus-King boss encounter."""
     
+    detection_patterns = ['nexus-king', 'Nexus-King']
+    
     def __init__(self):
         super().__init__("Nexus-King")
         self.mechanics = [
